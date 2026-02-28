@@ -68,7 +68,6 @@ async function getTrendingRepos(duration, limit) {
 
 program.action(async (options) => {
   try {
-    // FIXED: Proper Chalk v5+ syntax
     console.log(chalk.cyan(`\n🚀 Fetching GitHub trending repos (${options.duration}, limit: ${options.limit})\n`));
     
     const repos = await getTrendingRepos(options.duration, parseInt(options.limit));
@@ -78,14 +77,56 @@ program.action(async (options) => {
       return;
     }
     
-    console.log(`${repos.length} trending repositories found!\n`);
-    console.log(repos);  // Temporary raw output
+    // Sort by stars (descending) - API already sorts but we double-check
+    const sortedRepos = repos.sort((a, b) => b.stargazers_count - a.stargazers_count);
+    
+    // Prepare table data
+    const tableData = [
+      ['#', 'Repository', 'Language', '⭐ Stars', 'Description']
+    ];
+    
+    sortedRepos.forEach((repo, index) => {
+      const stars = repo.stargazers_count.toLocaleString();
+      const repoName = `${repo.owner.login}/${repo.name}`;
+      const language = repo.language || 'Unknown';
+      const shortDesc = (repo.description || 'No description').substring(0, 60) + 
+                       (repo.description && repo.description.length > 60 ? '...' : '');
+      
+      tableData.push([
+        chalk.yellowBright(`${index + 1}`),
+        chalk.cyanBright(repoName),
+        chalk.greenBright(language),
+        chalk.yellowBright(stars),
+        shortDesc
+      ]);
+    });
+    
+    // Configure table
+    const config = {
+      columnDefault: {
+        paddingLeft: 1,
+        paddingRight: 2
+      },
+      drawHorizontalLine: (index, size) => {
+        return index === 0 || index === 1 || index === size;
+      }
+    };
+    
+    // Render table
+    const output = Table.table(tableData, config);
+    console.log(output);
+    
+    // Add repo URLs
+    console.log(chalk.gray('\n📎 URLs:'));
+    sortedRepos.slice(0, 5).forEach((repo, index) => {
+      console.log(`  ${index + 1}. ${chalk.blue(repo.html_url)}`);
+    });
     
   } catch (error) {
-    // FIXED: Proper Chalk syntax
     console.error(chalk.red(`❌ Error: ${error.message}`));
     process.exit(1);
   }
 });
+
 
 program.parse();
