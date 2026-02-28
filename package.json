@@ -2,10 +2,14 @@
   "name": "github-trending-cli",
   "version": "1.0.0",
   "main": "index.js",
+  "bin": {
+    "github-trending": "./index.js"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "node index.js --help"
+    "test": "node index.js --help",
+    "build": "echo 'Ready to publish!'"
   },
   "keywords": [],
   "author": "",

@@ -16,6 +16,17 @@ program.option('-d, --duration <type>', 'day|week|month|year', 'week');
 program.option('-l, --limit <number>', 'number of repos', 10);
 
 async function getTrendingRepos(duration, limit) {
+  // Input validation
+  const validDurations = ['day', 'week', 'month', 'year'];
+  if (!validDurations.includes(duration.toLowerCase())) {
+    throw new Error(`Invalid duration: ${duration}. Use: ${validDurations.join(', ')}`);
+  }
+  
+  const numLimit = parseInt(limit);
+  if (isNaN(numLimit) || numLimit < 1 || numLimit > 100) {
+    throw new Error('Limit must be between 1 and 100');
+  }
+
   const now = new Date();
   let sinceDate;
   
@@ -32,37 +43,55 @@ async function getTrendingRepos(duration, limit) {
     case 'year':
       sinceDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
       break;
-    default:
-      throw new Error('Invalid duration. Use: day, week, month, year');
   }
 
   const sinceStr = sinceDate.toISOString().split('T')[0];
   
-  const spinner = ora('Fetching trending repos...').start();
+  const spinner = ora(`Fetching repos created since ${sinceStr}...`).start();
   
-  try {
-    const url = `https://api.github.com/search/repositories?q=created:>${sinceStr}&sort=stars&order=desc&per_page=${limit}`;
-    
-    const response = await axios.get(url, {
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'github-trending-cli'
+  // Retry logic for rate limits
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      const url = `https://api.github.com/search/repositories?q=created:>${sinceStr}&sort=stars&order=desc&per_page=${numLimit}`;
+      
+      const response = await axios.get(url, {
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'github-trending-cli/1.0.0'
+        },
+        timeout: 10000  // 10s timeout
+      });
+      
+      spinner.succeed();
+      return response.data.items;
+      
+    } catch (error) {
+      spinner.fail();
+      
+      if (error.code === 'ENOTFOUND' || error.code === 'ECONNABORTED') {
+        throw new Error('Network error. Check your internet connection.');
       }
-    });
-    
-    spinner.succeed();
-    return response.data.items;
-    
-  } catch (error) {
-    spinner.fail();
-    
-    // FIXED: Chalk v5+ template literal syntax
-    if (error.response?.status === 403) {
-      console.error(chalk.red(`❌ GitHub API rate limit exceeded. Try again later.`));
-      process.exit(1);
+      
+      if (error.response?.status === 403) {
+        const resetTime = error.response.headers['x-ratelimit-reset'];
+        const resetDate = resetTime ? new Date(parseInt(resetTime) * 1000).toLocaleString() : 'unknown';
+        throw new Error(`GitHub API rate limit exceeded. Resets: ${resetDate}`);
+      }
+      
+      if (error.response?.status === 422) {
+        throw new Error('No repositories found for this time range.');
+      }
+      
+      if (retries > 1) {
+        spinner.start(`Retrying... (${3-retries + 1}/3)`);
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2s delay
+        retries--;
+        continue;
+      }
+      
+      throw new Error(`API error: ${error.response?.status || 'Unknown'} - ${error.message}`);
     }
-    console.error(chalk.red(`❌ API request failed: ${error.message}`));
-    process.exit(1);
   }
 }
 
@@ -130,3 +159,15 @@ program.action(async (options) => {
 
 
 program.parse();
+
+// Enhanced help
+program.on('--help', () => {
+  console.log('\n📊 Example usage:');
+  console.log('  github-trending --duration week --limit 10');
+  console.log('  github-trending -d month -l 5');
+  console.log('\n🌟 Features:');
+  console.log('  • Real-time GitHub trending repos by time range');
+  console.log('  • Beautiful colored tables');
+  console.log('  • Rate limit handling & retries');
+  console.log('  • Smart error messages');
+});
